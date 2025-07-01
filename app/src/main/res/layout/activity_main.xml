@@ -41,8 +41,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="20sp" />
-
-    </LinearLayout>
+        
+        </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -53,6 +53,7 @@
         android:orientation="horizontal">
 
         <TextView
+            android:id="@+id/language_name1"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginEnd="5sp"
@@ -61,17 +62,21 @@
             android:text="@string/selected_language"
             android:singleLine="true"
             android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/language_name1"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="5sp"
-            android:layout_weight="1"
-            android:gravity="start"
-            android:textSize="20sp" />
-
+            
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/processing_time_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:padding="8dp"
+        android:textColor="@android:color/holo_blue_dark"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        tools:text="Processing Time: 2.5s"
+        tools:visibility="visible" />
 
     <FrameLayout
         android:layout_width="match_parent"

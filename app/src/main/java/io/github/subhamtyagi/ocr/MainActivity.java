@@ -45,6 +45,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -92,6 +93,10 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
     private LinearProgressIndicator mProgressBar;
     private TextView mProgressMessage;
 
+    // ADDED: เพิ่ม TextView สำหรับแสดงเวลาประมวลผล
+    private TextView mProcessingTimeTextView;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -103,11 +108,14 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
         mProgressIndicator = findViewById(R.id.progress_indicator);
         mSwipeRefreshLayout = findViewById(R.id.swipe_to_refresh);
         mFloatingActionButton = findViewById(R.id.btn_scan);
-        mLanguageName = findViewById(R.id.language_name1);
+        mLanguageName = findViewById(R.id.language_name1); // อ้างอิง ID ที่เพิ่มใน XML
 
         mProgressBar = findViewById(R.id.progress_bar);
         mProgressMessage = findViewById(R.id.progress_message);
         mDownloadLayout = findViewById(R.id.download_layout);
+
+        // ADDED: อ้างอิง TextView สำหรับแสดงเวลาประมวลผลจาก layout
+        mProcessingTimeTextView = findViewById(R.id.processing_time_text);
 
         executorService = Executors.newFixedThreadPool(1);
         handler = new Handler(Looper.getMainLooper());
@@ -415,6 +423,9 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
                 animateImageViewAlpha(0.2f);
             });
 
+            // MODIFIED: เพิ่มการจับเวลา
+            long startTime = System.currentTimeMillis();
+
             // Background execution
             if (!isRefresh && Utils.isPreProcessImage()) {
                 bitmap = Utils.preProcessBitmap(bitmap);
@@ -423,10 +434,20 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
             saveBitmapToStorage(bitmap);
             String text = mImageTextReader.getTextFromBitmap(bitmap);
 
+            // MODIFIED: คำนวณเวลาที่ใช้ไป
+            long durationMs = System.currentTimeMillis() - startTime;
+            final String timeTaken = String.format(Locale.US, "Processing Time: %.2f s", durationMs / 1000.0);
+
+
             // Post-execution on UI thread
             handler.post(() -> {
                 mProgressIndicator.setVisibility(View.GONE);
                 animateImageViewAlpha(1f);
+
+                // ADDED: แสดงผลเวลาที่ใช้
+                mProcessingTimeTextView.setText(timeTaken);
+                mProcessingTimeTextView.setVisibility(View.VISIBLE);
+
                 String cleanText = Html.fromHtml(text).toString().trim();
                 showOCRResult(cleanText);
                 Toast.makeText(MainActivity.this, "With Confidence: " + mImageTextReader.getAccuracy() + "%", Toast.LENGTH_SHORT).show();
