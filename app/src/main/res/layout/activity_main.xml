@@ -41,8 +41,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="20sp" />
-        
-        </LinearLayout>
+
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -62,7 +62,7 @@
             android:text="@string/selected_language"
             android:singleLine="true"
             android:textSize="20sp" />
-            
+
     </LinearLayout>
 
     <TextView
@@ -96,18 +96,26 @@
                 tools:src="@tools:sample/backgrounds/scenic" />
 
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
-
+        
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/btn_scan"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|end"
             android:layout_margin="16dp"
-            android:clickable="true"
-            android:contentDescription="@string/generic_image_description"
-            android:focusable="true"
+            android:contentDescription="@string/import_from_gallery"
             app:srcCompat="@drawable/ic_baseline_photo_library_24" />
 
-    </FrameLayout>
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/btn_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="88dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="@string/open_camera"
+            app:srcCompat="@drawable/ic_baseline_photo_camera_24" />
+
+        </FrameLayout>
 
 </LinearLayout>

@@ -69,32 +69,24 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
     private File dirFast;
     private File currentDirectory;
     private ImageTextReader mImageTextReader;
-    /**
-     * TrainingDataType: i.e Best, Standard, Fast
-     */
     private String mTrainingDataType;
     private int mPageSegMode;
     private Map<String, String> parameters;
-    /**
-     * AlertDialog for showing when language data doesn't exists
-     */
     private AlertDialog dialog;
     private ImageView mImageView;
     private LinearProgressIndicator mProgressIndicator;
     private SwipeRefreshLayout mSwipeRefreshLayout;
     private FloatingActionButton mFloatingActionButton;
     private LinearLayout mDownloadLayout;
-    /**
-     * Language name to be displayed
-     */
     private TextView mLanguageName;
     private ExecutorService executorService;
     private Handler handler;
     private LinearProgressIndicator mProgressBar;
     private TextView mProgressMessage;
-
-    // ADDED: เพิ่ม TextView สำหรับแสดงเวลาประมวลผล
     private TextView mProcessingTimeTextView;
+
+    // ลบการประกาศ mFloatingActionButton ที่ซ้ำกันออกไปแล้ว
+    private FloatingActionButton mCameraButton;
 
 
     @Override
@@ -108,13 +100,11 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
         mProgressIndicator = findViewById(R.id.progress_indicator);
         mSwipeRefreshLayout = findViewById(R.id.swipe_to_refresh);
         mFloatingActionButton = findViewById(R.id.btn_scan);
-        mLanguageName = findViewById(R.id.language_name1); // อ้างอิง ID ที่เพิ่มใน XML
-
+        mCameraButton = findViewById(R.id.btn_camera);
+        mLanguageName = findViewById(R.id.language_name1);
         mProgressBar = findViewById(R.id.progress_bar);
         mProgressMessage = findViewById(R.id.progress_message);
         mDownloadLayout = findViewById(R.id.download_layout);
-
-        // ADDED: อ้างอิง TextView สำหรับแสดงเวลาประมวลผลจาก layout
         mProcessingTimeTextView = findViewById(R.id.processing_time_text);
 
         executorService = Executors.newFixedThreadPool(1);
@@ -126,7 +116,6 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
     }
 
     private void initViews() {
-
         mFloatingActionButton.setOnClickListener(v -> {
             if (isNoLanguagesDataMissingFromSet()) {
                 if (mImageTextReader != null) {
@@ -137,8 +126,14 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
             } else {
                 downloadLanguageData();
             }
-
         });
+
+        mCameraButton.setOnClickListener(v -> {
+            Intent cameraIntent = new Intent(MainActivity.this, CameraActivity.class);
+            startActivityForResult(cameraIntent, CropImage.CROP_IMAGE_ACTIVITY_REQUEST_CODE);
+        });
+
+
         mSwipeRefreshLayout.setOnRefreshListener(() -> {
             if (isNoLanguagesDataMissingFromSet()) {
                 if (mImageTextReader != null) {
@@ -157,8 +152,8 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
                 downloadLanguageData();
             }
             mSwipeRefreshLayout.setRefreshing(false);
-
         });
+
         if (Utils.isPersistData()) {
             Bitmap bitmap = loadBitmapFromStorage();
             if (bitmap != null) {
@@ -191,15 +186,9 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
                 }
             }
         }
-        // Set currentDirectory to the last initialized directory (standard)
         currentDirectory = new File(dirStandard, "tessdata");
     }
 
-
-    /**
-     * initialize the OCR i.e tesseract api
-     * if there is no training data in directory than it will ask for download
-     */
     private void initializeOCR() {
         Set<Language> languages = Utils.getTrainingDataLanguages(this);
         File cf;
@@ -328,7 +317,6 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
                 } else {
                     initializeOCR();
                 }
-
             }
         }
     }
@@ -416,17 +404,14 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
 
         @Override
         public void run() {
-            // Pre-execute on UI thread
             handler.post(() -> {
                 mProgressIndicator.setProgress(0);
                 mProgressIndicator.setVisibility(View.VISIBLE);
                 animateImageViewAlpha(0.2f);
             });
 
-            // MODIFIED: เพิ่มการจับเวลา
             long startTime = System.currentTimeMillis();
 
-            // Background execution
             if (!isRefresh && Utils.isPreProcessImage()) {
                 bitmap = Utils.preProcessBitmap(bitmap);
             }
@@ -434,17 +419,13 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
             saveBitmapToStorage(bitmap);
             String text = mImageTextReader.getTextFromBitmap(bitmap);
 
-            // MODIFIED: คำนวณเวลาที่ใช้ไป
             long durationMs = System.currentTimeMillis() - startTime;
             final String timeTaken = String.format(Locale.US, "Processing Time: %.2f s", durationMs / 1000.0);
 
-
-            // Post-execution on UI thread
             handler.post(() -> {
                 mProgressIndicator.setVisibility(View.GONE);
                 animateImageViewAlpha(1f);
 
-                // ADDED: แสดงผลเวลาที่ใช้
                 mProcessingTimeTextView.setText(timeTaken);
                 mProcessingTimeTextView.setVisibility(View.VISIBLE);
 
@@ -519,11 +500,10 @@ public class MainActivity extends AppCompatActivity implements TessBaseAPI.Progr
                 }
                 size = Utils.getSize(totalContentSize);
 
-                // Switch from indeterminate to determinate progress bar
                 handler.post(() -> {
                     mProgressBar.setVisibility(View.VISIBLE);
                     mProgressMessage.setText(String.format("0%s%s", getString(R.string.percentage_downloaded), size));
-                    mProgressBar.setProgress(0);               // Reset progress bar to 0
+                    mProgressBar.setProgress(0);
                 });
 
                 try (InputStream input = new BufferedInputStream(conn.getInputStream()); OutputStream output = new FileOutputStream(new File(currentDirectory, String.format(Constants.LANGUAGE_CODE, lang)))) {

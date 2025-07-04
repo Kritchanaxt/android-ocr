@@ -75,4 +75,11 @@
     <string name="select_search_language">Select or Search Languages</string>
     <string name="learn_about_the_above_parameters">Learn more about the parameters</string>
     <string name="about_the_tesseract_parameters">Learn more</string>
+
+
+    <string name="open_camera">Open Camera</string>
+    <string name="import_from_gallery">Import from Gallery</string>
+    <string name="check_all_cameras">Check All Cameras</string>
+    <string name="capture_image">Capture Image</string>
+    <string name="switch_camera">Switch Camera</string>
 </resources>
