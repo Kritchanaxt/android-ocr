@@ -10,6 +10,15 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_centerInParent="true" />
+        
+        <ImageButton
+            android:id="@+id/btn_change_resolution"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_menu_zoom"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_margin="16dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -29,6 +38,7 @@
             android:padding="12dp"
             app:srcCompat="@drawable/ic_baseline_camera_info_24"
             app:tint="@android:color/white" />
+
 
         <View
             android:layout_width="0dp"
@@ -57,6 +67,7 @@
             android:padding="12dp"
             app:srcCompat="@drawable/ic_baseline_flip_camera_24"
             app:tint="@android:color/white" />
+            
 
     </LinearLayout>
 
