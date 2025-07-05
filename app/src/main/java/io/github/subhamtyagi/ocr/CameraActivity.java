@@ -98,7 +98,7 @@ public class CameraActivity extends AppCompatActivity {
 
         mCaptureButton.setOnClickListener(v -> captureImage());
         mSwitchCameraButton.setOnClickListener(v -> switchCamera());
-        mCheckCamerasButton.setOnClickListener(v -> enumerateCameras()); //
+        mCheckCamerasButton.setOnClickListener(v -> enumerateCameras());
 
         mChangeResolutionButton.setOnClickListener(v -> showResolutionSelectionDialog());
         mChangeResolutionButton.setEnabled(false);
@@ -162,11 +162,6 @@ public class CameraActivity extends AppCompatActivity {
         builder.create().show();
     }
 
-    // --- START: ADDED MISSING METHOD ---
-    /**
-     * Logs the details of all available cameras on the device to Logcat.
-     * This is useful for debugging camera issues.
-     */
     private void enumerateCameras() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
@@ -188,7 +183,6 @@ public class CameraActivity extends AppCompatActivity {
             Log.e(TAG, "Cannot access camera list.", e);
         }
     }
-    // --- END: ADDED MISSING METHOD ---
 
 
     private void openCamera(int width, int height) {
@@ -251,6 +245,36 @@ public class CameraActivity extends AppCompatActivity {
         return bestSize;
     }
 
+    private int getJpegOrientation() {
+        int deviceRotation = getWindowManager().getDefaultDisplay().getRotation();
+        int rotationCompensation = 0;
+        switch (deviceRotation) {
+            case Surface.ROTATION_0: rotationCompensation = 0; break;
+            case Surface.ROTATION_90: rotationCompensation = 90; break;
+            case Surface.ROTATION_180: rotationCompensation = 180; break;
+            case Surface.ROTATION_270: rotationCompensation = 270; break;
+        }
+
+        int sensorOrientation = 90;
+        try {
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            sensorOrientation = manager.getCameraCharacteristics(mCameraId).get(CameraCharacteristics.SENSOR_ORIENTATION);
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Failed to get sensor orientation", e);
+        }
+
+        int jpegOrientation;
+        if (mCurrentLensFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+            jpegOrientation = (sensorOrientation + rotationCompensation + 360) % 360;
+        } else {
+            jpegOrientation = (sensorOrientation - rotationCompensation + 360) % 360;
+        }
+
+        Log.d(TAG, "Calculated JPEG orientation: " + jpegOrientation);
+        return jpegOrientation;
+    }
+
+
     private void captureImage() {
         if (mCameraDevice == null) return;
         try {
@@ -266,7 +290,8 @@ public class CameraActivity extends AppCompatActivity {
             final CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
             captureBuilder.addTarget(mImageReader.getSurface());
             captureBuilder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
-            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, 90);
+            captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation());
+
 
             final File file = new File(getExternalFilesDir(null), UUID.randomUUID().toString() + ".jpg");
 
@@ -276,21 +301,15 @@ public class CameraActivity extends AppCompatActivity {
                     byte[] bytes = new byte[buffer.capacity()];
                     buffer.get(bytes);
 
-                    Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-
-                    if (bitmap.getWidth() != mTargetResolution.getWidth() || bitmap.getHeight() != mTargetResolution.getHeight()) {
-                        Log.d(TAG, "Resizing image from " + bitmap.getWidth() + "x" + bitmap.getHeight() + " to " + mTargetResolution.toString());
-                        bitmap = Bitmap.createScaledBitmap(bitmap, mTargetResolution.getWidth(), mTargetResolution.getHeight(), true);
-                    }
-
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, bos);
-                    byte[] finalBytes = bos.toByteArray();
-
+                    // เขียนข้อมูลรูปภาพจากกล้องลงไฟล์โดยตรง
+                    // เพื่อรักษาข้อมูล EXIF Orientation (ทิศทางของภาพ) ไว้
                     try (FileOutputStream output = new FileOutputStream(file)) {
-                        output.write(finalBytes);
+                        output.write(bytes);
                     }
+
+                    // เรียกเมธอด onImageCaptured เมื่อบันทึกไฟล์เสร็จ
                     runOnUiThread(() -> onImageCaptured(file));
+
                 } catch (IOException e) {
                     Log.e(TAG, "Failed to save image", e);
                 }
@@ -333,11 +352,13 @@ public class CameraActivity extends AppCompatActivity {
                 .setTitle("รายละเอียดรูปภาพ")
                 .setMessage(imageInfo)
                 .setPositiveButton("ตัดภาพ (Crop Image)", (dialog, which) -> {
+                    // --- START: FIX ---
+                    // นำ .setInitialCropWindowRectangle(...) ออกเพื่อให้แสดงภาพเต็ม
                     CropImage.activity(imageUri)
                             .setGuidelines(CropImageView.Guidelines.ON)
                             .setAspectRatio(1, 1)
-                            .setInitialCropWindowRectangle(getStandardIdCardCropRect(mTargetResolution.getWidth(), mTargetResolution.getHeight()))
                             .start(this);
+                    // --- END: FIX ---
                 })
                 .setNegativeButton("ยกเลิก", (dialog, which) -> {
                     imageFile.delete();
@@ -435,16 +456,6 @@ public class CameraActivity extends AppCompatActivity {
         } catch (CameraAccessException e) {
             Log.e(TAG, "Failed to create preview session", e);
         }
-    }
-
-    private Rect getStandardIdCardCropRect(int imageWidth, int imageHeight) {
-        int cropWidth = (int) (imageWidth * 0.95);
-        int cropHeight = (int) (cropWidth * (5.4 / 8.56));
-        int left = (imageWidth - cropWidth) / 2;
-        int top = (imageHeight / 2) - (int)(cropHeight * 0.7);
-        int right = left + cropWidth;
-        int bottom = top + cropHeight;
-        return new Rect(left, top, right, bottom);
     }
 
     private Size chooseOptimalSize(Size[] choices, int textureViewWidth, int textureViewHeight) {
