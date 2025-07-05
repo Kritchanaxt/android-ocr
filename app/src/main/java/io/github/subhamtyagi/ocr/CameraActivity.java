@@ -123,12 +123,8 @@ public class CameraActivity extends AppCompatActivity {
                 new Size(2160, 2160),
                 new Size(2048, 2048),
                 new Size(1920, 1920),
-                new Size(1600, 1600),
                 new Size(1440, 1440),
-                new Size(1280, 1280),
-                new Size(1200, 1200),
                 new Size(1080, 1080),
-                new Size(960, 960),
                 new Size(720, 720)
         ));
         Collections.sort(mMasterResolutionList, (s1, s2) -> Integer.compare(s2.getWidth() * s2.getHeight(), s1.getWidth() * s1.getHeight()));
@@ -146,14 +142,14 @@ public class CameraActivity extends AppCompatActivity {
             Size s = mMasterResolutionList.get(i);
             String resolutionString = s.getWidth() + "x" + s.getHeight();
             if (i == 0) {
-                resolutionItems[i] = "สูงสุด (" + resolutionString + ")";
+                resolutionItems[i] = "Maximum (" + resolutionString + ")";
             } else {
                 resolutionItems[i] = resolutionString;
             }
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("เลือกความละเอียด");
+        builder.setTitle("Select resolution");
         builder.setItems(resolutionItems, (dialog, which) -> {
             mTargetResolution = mMasterResolutionList.get(which);
             Toast.makeText(this, "เลือก: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show();
@@ -301,13 +297,10 @@ public class CameraActivity extends AppCompatActivity {
                     byte[] bytes = new byte[buffer.capacity()];
                     buffer.get(bytes);
 
-                    // เขียนข้อมูลรูปภาพจากกล้องลงไฟล์โดยตรง
-                    // เพื่อรักษาข้อมูล EXIF Orientation (ทิศทางของภาพ) ไว้
                     try (FileOutputStream output = new FileOutputStream(file)) {
                         output.write(bytes);
                     }
 
-                    // เรียกเมธอด onImageCaptured เมื่อบันทึกไฟล์เสร็จ
                     runOnUiThread(() -> onImageCaptured(file));
 
                 } catch (IOException e) {
@@ -344,23 +337,23 @@ public class CameraActivity extends AppCompatActivity {
         String fileFormat = "JPEG";
         String resolutionStr = mTargetResolution.getWidth() + "x" + mTargetResolution.getHeight();
 
-        String imageInfo = "ขนาด: " + fileSizeStr + "\n" +
-                "ฟอร์แมต: " + fileFormat + "\n" +
-                "ความละเอียด: " + resolutionStr;
+        String imageInfo = "File Size: " + fileSizeStr + "\n" +
+                "Format: " + fileFormat + "\n" +
+                "Resolution: " + resolutionStr;
 
         new AlertDialog.Builder(this)
-                .setTitle("รายละเอียดรูปภาพ")
+                .setTitle("Image details")
                 .setMessage(imageInfo)
-                .setPositiveButton("ตัดภาพ (Crop Image)", (dialog, which) -> {
-                    // --- START: FIX ---
-                    // นำ .setInitialCropWindowRectangle(...) ออกเพื่อให้แสดงภาพเต็ม
+                .setPositiveButton("Crop Image", (dialog, which) -> {
+                    android.graphics.Rect idCardCropRect = new android.graphics.Rect(100, 250, 980, 700);
+
                     CropImage.activity(imageUri)
                             .setGuidelines(CropImageView.Guidelines.ON)
-                            .setAspectRatio(1, 1)
+                            .setAspectRatio(85, 54)
+                            .setInitialCropWindowRectangle(idCardCropRect)
                             .start(this);
-                    // --- END: FIX ---
                 })
-                .setNegativeButton("ยกเลิก", (dialog, which) -> {
+                .setNegativeButton("Cancel", (dialog, which) -> {
                     imageFile.delete();
                 })
                 .setCancelable(false)
