@@ -1,8 +1,8 @@
-package io.github.subhamtyagi.ocr; //  <--- แก้ไขบรรทัดนี้
+package io.github.subhamtyagi.ocr;
 
 import android.Manifest;
 import android.content.Context;
-import android.content.Intent; //  <--- เพิ่ม import ที่จำเป็น
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
@@ -26,6 +26,7 @@ import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.Toast;
 
@@ -43,6 +44,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -50,9 +52,11 @@ public class CameraActivity extends AppCompatActivity {
 
     private static final String TAG = "CameraActivity";
     private static final int CAMERA_PERMISSION_REQUEST = 101;
-    private static final Size TARGET_RESOLUTION = new Size(720, 720); //  ความละเอียดเป้าหมาย 1:1
+    // We keep the target *capture* resolution, the preview will adapt.
+    private static final Size TARGET_RESOLUTION = new Size(720, 720);
 
-    private TextureView mTextureView;
+    // Change TextureView to our new AutoFitTextureView
+    private AutoFitTextureView mTextureView;
     private ImageButton mCaptureButton;
     private ImageButton mSwitchCameraButton;
     private ImageButton mCheckCamerasButton;
@@ -68,12 +72,15 @@ public class CameraActivity extends AppCompatActivity {
 
     private int mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
 
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera);
 
+        // Make sure to cast to AutoFitTextureView
         mTextureView = findViewById(R.id.texture_view);
+
         mCaptureButton = findViewById(R.id.btn_capture);
         mSwitchCameraButton = findViewById(R.id.btn_switch_camera);
         mCheckCamerasButton = findViewById(R.id.btn_check_cameras);
@@ -148,9 +155,22 @@ public class CameraActivity extends AppCompatActivity {
                     mCameraId = cameraId;
                     StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
+                    // --- START: MODIFIED LOGIC ---
+
+                    // 1. Choose an optimal preview size from the camera's supported sizes.
+                    //    We don't force a 1:1 preview stream as most cameras don't support it.
+                    //    Instead, we pick a good quality standard stream (like 4:3 or 16:9).
                     mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), width, height);
 
+                    // 2. Set our AutoFitTextureView to a 1:1 aspect ratio.
+                    //    This will make the view itself a square on the screen.
+                    mTextureView.setAspectRatio(1, 1);
+
+                    // 3. Configure the transform. This will correctly scale and rotate the
+                    //    (likely rectangular) preview stream to fill our square TextureView.
                     configureTransform(width, height);
+
+                    // --- END: MODIFIED LOGIC ---
 
                     manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
                     return;
@@ -160,6 +180,7 @@ public class CameraActivity extends AppCompatActivity {
             Log.e(TAG, "Failed to open camera", e);
         }
     }
+
 
     private void closeCamera() {
         if (mCaptureSession != null) {
@@ -314,31 +335,51 @@ public class CameraActivity extends AppCompatActivity {
         return new Rect(left, top, right, bottom);
     }
 
+    /**
+     * MODIFIED: This function now prefers a standard, high-quality preview size
+     * instead of trying to force a 1:1 ratio, which is more robust across devices.
+     * The 1:1 view is handled by AutoFitTextureView.
+     */
     private Size chooseOptimalSize(Size[] choices, int textureViewWidth, int textureViewHeight) {
         List<Size> bigEnough = new ArrayList<>();
         List<Size> notBigEnough = new ArrayList<>();
-        int w = TARGET_RESOLUTION.getWidth();
-        int h = TARGET_RESOLUTION.getHeight();
+
+        // Define a max preview size to avoid using huge resolutions for preview
+        int maxPreviewWidth = 1920;
+        int maxPreviewHeight = 1080;
+
         for (Size option : choices) {
-            if (option.getWidth() == option.getHeight() && option.getWidth() >= w) {
-                return option;
-            }
-            if (option.getHeight() == option.getWidth() * h / w && option.getWidth() >= textureViewWidth && option.getHeight() >= textureViewHeight) {
-                bigEnough.add(option);
-            } else {
-                notBigEnough.add(option);
+            // Filter for standard aspect ratios and reasonable sizes
+            if (option.getWidth() <= maxPreviewWidth && option.getHeight() <= maxPreviewHeight) {
+                if (option.getWidth() >= textureViewWidth && option.getHeight() >= textureViewHeight) {
+                    bigEnough.add(option);
+                } else {
+                    notBigEnough.add(option);
+                }
             }
         }
 
+        // Pick the smallest of the big-enough options, or the largest of the not-big-enough options.
         if (bigEnough.size() > 0) {
-            return Collections.min(bigEnough, (s1, s2) -> Long.compare((long) s1.getWidth() * s1.getHeight(), (long) s2.getWidth() * s2.getHeight()));
+            return Collections.min(bigEnough, new Comparator<Size>() {
+                @Override
+                public int compare(Size s1, Size s2) {
+                    return Long.compare((long) s1.getWidth() * s1.getHeight(), (long) s2.getWidth() * s2.getHeight());
+                }
+            });
         } else if (notBigEnough.size() > 0) {
-            return Collections.max(notBigEnough, (s1, s2) -> Long.compare((long) s1.getWidth() * s1.getHeight(), (long) s2.getWidth() * s2.getHeight()));
+            return Collections.max(notBigEnough, new Comparator<Size>() {
+                @Override
+                public int compare(Size s1, Size s2) {
+                    return Long.compare((long) s1.getWidth() * s1.getHeight(), (long) s2.getWidth() * s2.getHeight());
+                }
+            });
         } else {
             Log.e(TAG, "Couldn't find any suitable preview size");
-            return choices[0];
+            return choices[0]; // Fallback to the first available size
         }
     }
+
 
     private void configureTransform(int viewWidth, int viewHeight) {
         if (null == mTextureView || null == mPreviewSize) {
@@ -414,24 +455,20 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    //  เพิ่ม onActivityResult เพื่อรับผลลัพธ์จาก CropImageActivity
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == CropImage.CROP_IMAGE_ACTIVITY_REQUEST_CODE) {
             if (resultCode == RESULT_OK) {
                 CropImage.ActivityResult result = CropImage.getActivityResult(data);
-                // ส่งผลลัพธ์กลับไปให้ MainActivity
                 Intent resultIntent = new Intent();
                 resultIntent.putExtra(CropImage.CROP_IMAGE_EXTRA_RESULT, result);
                 setResult(RESULT_OK, resultIntent);
                 finish();
             } else if (resultCode == CropImage.CROP_IMAGE_ACTIVITY_RESULT_ERROR_CODE) {
-                // จัดการ Error
                 Toast.makeText(this, "Image crop failed.", Toast.LENGTH_SHORT).show();
                 finish();
             } else {
-                // ผู้ใช้กดยกเลิก
                 finish();
             }
         }
