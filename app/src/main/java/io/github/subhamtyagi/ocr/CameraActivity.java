@@ -3,12 +3,17 @@ package io.github.subhamtyagi.ocr;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -26,17 +31,25 @@ import android.os.HandlerThread;
 import android.text.format.Formatter;
 import android.util.Log;
 import android.util.Size;
+import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.theartofdev.edmodo.cropper.CropImage;
@@ -55,13 +68,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class CameraActivity extends AppCompatActivity {
 
     private static final String TAG = "CameraActivity";
     private static final int CAMERA_PERMISSION_REQUEST = 101;
 
-    //<editor-fold desc="ตัวแปรของ Activity">
     private List<Size> mMasterResolutionList;
     private List<Size> mHardwareSupportedResolutions;
     private Size mTargetResolution;
@@ -83,9 +96,12 @@ public class CameraActivity extends AppCompatActivity {
     private ImageReader mImageReader;
 
     private int mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
+    //</editor-fold>
+
+    //<editor-fold desc="โค้ดสำหรับตรวจสอบกล้อง (ปรับปรุงใหม่)">
 
     /**
-     * Data class สำหรับเก็บข้อมูลกล้องที่ถูกตรวจจับ
+     * Data class สำหรับเก็บข้อมูลกล้อง
      */
     public static class CameraInfo {
         public final String title;
@@ -107,42 +123,111 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     /**
-     * แปลงค่า Lens Facing เป็น String
+     * [UI Improvement] Adapter สำหรับแสดงรายการกล้องใน Dialog (Dark Theme)
      */
-    private static String lensOrientationString(Integer value) {
-        if (value == null) return "Unknown";
-        switch (value) {
-            case CameraCharacteristics.LENS_FACING_BACK: return "Back";
-            case CameraCharacteristics.LENS_FACING_FRONT: return "Front";
-            case CameraCharacteristics.LENS_FACING_EXTERNAL: return "External";
-            default: return "Unknown (" + value + ")";
+    private static class CameraListAdapter extends ArrayAdapter<CameraInfo> {
+        private final String mActiveCameraId;
+        private final Context mContext;
+        private static final int TYPE_ITEM = 0;
+        private static final int TYPE_DIVIDER = 1;
+
+
+        public CameraListAdapter(@NonNull Context context, List<CameraInfo> cameras, String activeCameraId) {
+            super(context, 0, cameras); // Use 0 for resource ID since we are inflating manually
+            this.mContext = context;
+            this.mActiveCameraId = activeCameraId;
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            return getItem(position).cameraType.equals("Divider") ? TYPE_DIVIDER : TYPE_ITEM;
+        }
+
+        @Override
+        public int getViewTypeCount() {
+            return 2; // We have two types of views: Item and Divider
+        }
+
+        @Override
+        public boolean isEnabled(int position) {
+            // A divider is not clickable
+            return getItemViewType(position) == TYPE_ITEM;
+        }
+
+        @NonNull
+        @Override
+        public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
+            int viewType = getItemViewType(position);
+            CameraInfo item = getItem(position);
+            LayoutInflater inflater = LayoutInflater.from(mContext);
+
+            if (convertView == null) {
+                if (viewType == TYPE_ITEM) {
+                    convertView = inflater.inflate(android.R.layout.select_dialog_item, parent, false);
+                } else { // TYPE_DIVIDER
+                    TextView divider = new TextView(mContext);
+                    divider.setPadding(16, 8, 16, 8);
+                    divider.setTypeface(null, Typeface.BOLD);
+                    divider.setGravity(Gravity.CENTER);
+                    convertView = divider;
+                }
+            }
+
+
+            if (viewType == TYPE_ITEM) {
+                TextView textView = convertView.findViewById(android.R.id.text1);
+                String displayText = item.title;
+
+                if (item.isAvailable && item.cameraId.equals(mActiveCameraId)) {
+                    displayText += " (Selected)";
+                    textView.setTypeface(null, Typeface.BOLD);
+                } else {
+                    textView.setTypeface(null, Typeface.NORMAL);
+                }
+                textView.setText(displayText);
+
+                if (item.iconResId != 0) {
+                    Drawable icon = ContextCompat.getDrawable(getContext(), item.iconResId);
+                    if(icon!=null) icon.setTint(Color.WHITE);
+                    textView.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null);
+                    textView.setCompoundDrawablePadding(24);
+                }
+
+                textView.setTextColor(Color.WHITE);
+
+                if (item.isAvailable) {
+                    textView.setAlpha(1.0f);
+                } else {
+                    textView.setAlpha(0.5f);
+                }
+
+            } else { // TYPE_DIVIDER
+                TextView dividerTextView = (TextView) convertView;
+                dividerTextView.setText(item.title);
+                dividerTextView.setTextColor(Color.LTGRAY);
+            }
+
+
+            return convertView;
         }
     }
 
-    /**
-     * ตรวจสอบและจำแนกประเภทกล้องทั้งหมดในอุปกรณ์
-     */
+
     @SuppressLint("InlinedApi")
     public static List<CameraInfo> enumerateCamerasDetailed(CameraManager cameraManager) {
-        Log.d(TAG, "Starting detailed camera enumeration...");
         Map<String, CameraInfo> detectedCamerasMap = new HashMap<>();
-
         String[] allCameraIds;
         try {
             allCameraIds = cameraManager.getCameraIdList();
         } catch (Exception e) {
-            Log.e(TAG, "Failed to get camera ID list", e);
             allCameraIds = new String[0];
         }
-
-        Log.i(TAG, "Total camera IDs reported by CameraManager: " + allCameraIds.length + ". IDs: " + String.join(", ", allCameraIds));
 
         List<String> predefinedCameraTypes = Arrays.asList(
                 "Front Camera", "Front Ultra Wide Camera", "Back Camera (Main)",
                 "Back Triple Camera", "Back Dual Camera", "Back Ultra Wide Camera",
                 "Back Telephoto Camera", "External Camera"
         );
-
         float ultraWideFocalLengthThreshold = 2.2f;
         float telephotoFocalLengthThreshold = 7.5f;
 
@@ -156,12 +241,7 @@ public class CameraActivity extends AppCompatActivity {
 
                 boolean isLogicalMultiCamera = false;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    for (int capability : capabilities) {
-                        if (capability == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) {
-                            isLogicalMultiCamera = true;
-                            break;
-                        }
-                    }
+                    for (int cap : capabilities) if (cap == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) { isLogicalMultiCamera = true; break; }
                 }
 
                 List<String> physicalCameraIds = new ArrayList<>();
@@ -169,22 +249,11 @@ public class CameraActivity extends AppCompatActivity {
                     physicalCameraIds.addAll(characteristics.getPhysicalCameraIds());
                 }
 
-                Log.i(TAG, "--- Processing Camera ID: " + id + " ---");
-                Log.i(TAG, "  Orientation: " + lensOrientationString(orientation));
-                Log.i(TAG, "  Is Logical Multi-Camera: " + isLogicalMultiCamera);
-                if (isLogicalMultiCamera) {
-                    Log.i(TAG, "  Physical Camera IDs: " + String.join(", ", physicalCameraIds));
-                }
-
                 String determinedType = null;
                 if (orientation != null) {
                     switch (orientation) {
                         case CameraCharacteristics.LENS_FACING_FRONT:
-                            boolean isUltraWideFront = false;
-                            if (focalLengths != null && focalLengths.length == 1 && focalLengths[0] < ultraWideFocalLengthThreshold) {
-                                isUltraWideFront = true;
-                            }
-                            determinedType = isUltraWideFront ? "Front Ultra Wide Camera" : "Front Camera";
+                            determinedType = (focalLengths != null && focalLengths.length == 1 && focalLengths[0] < ultraWideFocalLengthThreshold) ? "Front Ultra Wide Camera" : "Front Camera";
                             break;
                         case CameraCharacteristics.LENS_FACING_BACK:
                             if (isLogicalMultiCamera && !physicalCameraIds.isEmpty()) {
@@ -194,13 +263,10 @@ public class CameraActivity extends AppCompatActivity {
                                     default: determinedType = "Back Multi-Camera (" + physicalCameraIds.size() + " Lenses)"; break;
                                 }
                             } else {
-                                boolean isTelephoto = false;
-                                boolean isUltraWide = false;
-                                if (focalLengths != null) {
-                                    for(float f : focalLengths) {
-                                        if (f > telephotoFocalLengthThreshold) isTelephoto = true;
-                                        if (f < ultraWideFocalLengthThreshold) isUltraWide = true;
-                                    }
+                                boolean isTelephoto = false, isUltraWide = false;
+                                if (focalLengths != null) for (float f : focalLengths) {
+                                    if (f > telephotoFocalLengthThreshold) isTelephoto = true;
+                                    if (f < ultraWideFocalLengthThreshold) isUltraWide = true;
                                 }
                                 if (isTelephoto) determinedType = "Back Telephoto Camera";
                                 else if (isUltraWide) determinedType = "Back Ultra Wide Camera";
@@ -214,50 +280,59 @@ public class CameraActivity extends AppCompatActivity {
                 }
 
                 if (determinedType != null) {
-                    Log.i(TAG, "  Camera ID " + id + ": Determined Type: " + determinedType);
-                    int iconRes = android.R.drawable.ic_menu_camera;
-                    CameraInfo camInfo = new CameraInfo(
-                            determinedType + " (ID: " + id + ")", id, determinedType,
-                            iconRes, true, physicalCameraIds);
+                    int iconRes = orientation == CameraCharacteristics.LENS_FACING_FRONT ? android.R.drawable.ic_menu_camera : android.R.drawable.ic_menu_gallery;
+                    CameraInfo camInfo = new CameraInfo(determinedType, id, determinedType, iconRes, true, physicalCameraIds);
                     detectedCamerasMap.put(determinedType, camInfo);
                 }
-
             } catch (Exception e) {
-                Log.e(TAG, "Error processing camera ID " + id, e);
+                // Ignore errors
             }
         }
 
-        List<CameraInfo> finalDisplayList = new ArrayList<>();
+        List<CameraInfo> availableCameras = new ArrayList<>();
+        List<CameraInfo> unavailableCameras = new ArrayList<>();
+
         predefinedCameraTypes.forEach(typeName -> {
             CameraInfo detectedItem = detectedCamerasMap.get(typeName);
             if (detectedItem != null) {
-                if (finalDisplayList.stream().noneMatch(c -> Objects.equals(c.cameraId, detectedItem.cameraId) && !c.cameraId.isEmpty())) {
-                    finalDisplayList.add(detectedItem);
+                if (availableCameras.stream().noneMatch(c -> c.cameraId.equals(detectedItem.cameraId))) {
+                    availableCameras.add(detectedItem);
                 }
             } else {
-                if (finalDisplayList.stream().noneMatch(c -> c.cameraType.equals(typeName))) {
-                    finalDisplayList.add(new CameraInfo(typeName + " (Not Available)", "", typeName, android.R.drawable.ic_menu_close_clear_cancel, false, Collections.emptyList()));
-                }
+                unavailableCameras.add(new CameraInfo(typeName, "", typeName, android.R.drawable.ic_menu_close_clear_cancel, false, Collections.emptyList()));
             }
         });
 
-        finalDisplayList.sort(Comparator.comparingInt(c -> predefinedCameraTypes.indexOf(c.cameraType)));
+        availableCameras.sort(Comparator.comparingInt(c -> predefinedCameraTypes.indexOf(c.cameraType)));
 
-        long availableCount = detectedCamerasMap.values().stream().filter(c -> c.isAvailable).count();
-        finalDisplayList.add(0, new CameraInfo("Detected: " + allCameraIds.length + " / Available Types: " + availableCount, "", "Header", 0, true, Collections.emptyList()));
+        List<CameraInfo> finalList = new ArrayList<>();
+        finalList.addAll(availableCameras);
 
-        return finalDisplayList;
+        if (!availableCameras.isEmpty() && !unavailableCameras.isEmpty()) {
+            finalList.add(new CameraInfo("Unavailable", "", "Divider", 0, false, Collections.emptyList()));
+        }
+
+        finalList.addAll(unavailableCameras);
+
+        return finalList;
     }
 
     private void updateCameraStatusText() {
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-        List<CameraInfo> cameraList = enumerateCamerasDetailed(manager);
-        String statusText = "";
-        if (!cameraList.isEmpty() && "Header".equals(cameraList.get(0).cameraType)) {
-            statusText = cameraList.get(0).title;
+        String[] allCameraIds;
+        try {
+            allCameraIds = manager.getCameraIdList();
+        } catch (CameraAccessException e) {
+            allCameraIds = new String[0];
         }
+
+        List<CameraInfo> allCamerasInList = enumerateCamerasDetailed(manager);
+        long availableCount = allCamerasInList.stream().filter(c -> c.isAvailable).count();
+
+        String statusText = "Detected: " + allCameraIds.length + " / Available: " + availableCount;
         mCameraStatusTextView.setText(statusText);
     }
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -280,17 +355,30 @@ public class CameraActivity extends AppCompatActivity {
             CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             List<CameraInfo> cameraList = enumerateCamerasDetailed(manager);
 
-            CharSequence[] cameraItems = new CharSequence[cameraList.size()];
-            for (int i = 0; i < cameraList.size(); i++) {
-                cameraItems[i] = cameraList.get(i).title;
-            }
+            CameraListAdapter adapter = new CameraListAdapter(this, cameraList, mCameraId);
 
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Available Cameras");
-            builder.setItems(cameraItems, null);
-            builder.setPositiveButton("OK", (dialog, which) -> dialog.dismiss());
-            builder.create().show();
+            builder.setAdapter(adapter, (dialog, which) -> {
+                CameraInfo selectedCamera = adapter.getItem(which);
+                if (selectedCamera != null && selectedCamera.isAvailable && !selectedCamera.cameraId.isEmpty()) {
+                    if (!selectedCamera.cameraId.equals(mCameraId)) {
+                        selectCameraById(selectedCamera.cameraId);
+                    }
+                    dialog.dismiss();
+                }
+            });
+            builder.setPositiveButton("CLOSE", (dialog, which) -> dialog.dismiss());
+
+            AlertDialog dialog = builder.create();
+            dialog.setOnShowListener(dialogInterface -> {
+                dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.parseColor("#2C2C2C")));
+                dialog.getButton(DialogInterface.BUTTON_POSITIVE).setTextColor(Color.CYAN);
+            });
+
+            dialog.show();
         });
+
 
         mChangeResolutionButton.setOnClickListener(v -> showResolutionSelectionDialog());
         mChangeResolutionButton.setEnabled(false);
@@ -298,7 +386,6 @@ public class CameraActivity extends AppCompatActivity {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
         } else {
-            updateCameraStatusText();
             startBackgroundThread();
             if (mTextureView.isAvailable()) {
                 openCamera(mTextureView.getWidth(), mTextureView.getHeight());
@@ -333,12 +420,19 @@ public class CameraActivity extends AppCompatActivity {
             else resolutionItems[i] = resolutionString;
         }
 
+        int checkedItem = mMasterResolutionList.indexOf(mTargetResolution);
+        if (checkedItem < 0) checkedItem = mMasterResolutionList.size() -1;
+
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Select resolution");
-        builder.setItems(resolutionItems, (dialog, which) -> {
+
+        builder.setSingleChoiceItems(resolutionItems, checkedItem, (dialog, which) -> {
             mTargetResolution = mMasterResolutionList.get(which);
             Toast.makeText(this, "Selected: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show();
         });
+
+        builder.setPositiveButton("OK", (dialog, which) -> dialog.dismiss());
         builder.create().show();
     }
 
@@ -348,20 +442,33 @@ public class CameraActivity extends AppCompatActivity {
 
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
-            for (String cameraId : manager.getCameraIdList()) {
-                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-                if (facing != null && facing == mCurrentLensFacing) {
-                    mCameraId = cameraId;
-                    StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                    setupHardwareResolutions(map);
-                    mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), width, height);
-                    mTextureView.setAspectRatio(1, 1);
-                    configureTransform(width, height);
-                    manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
-                    return;
+            if (mCameraId == null || mCameraId.isEmpty()) {
+                for (String cameraId : manager.getCameraIdList()) {
+                    CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                    Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+                    if (facing != null && facing == mCurrentLensFacing) {
+                        mCameraId = cameraId;
+                        break;
+                    }
                 }
             }
+
+            if (mCameraId == null || mCameraId.isEmpty()) {
+                mCameraId = manager.getCameraIdList()[0];
+            }
+
+
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(mCameraId);
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            setupHardwareResolutions(map);
+            mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), width, height);
+            mTextureView.setAspectRatio(1, 1);
+            configureTransform(width, height);
+            manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
+
+            runOnUiThread(this::updateCameraStatusText);
+
+
         } catch (CameraAccessException e) {
             Log.e(TAG, "Failed to open camera", e);
         }
@@ -508,12 +615,39 @@ public class CameraActivity extends AppCompatActivity {
                 .show();
     }
 
+    private void selectCameraById(String newCameraId) {
+        if (newCameraId == null || newCameraId.isEmpty()) return;
+
+        closeCamera();
+        mCameraId = newCameraId;
+
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        try {
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(mCameraId);
+            Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            if (facing != null) {
+                mCurrentLensFacing = facing;
+            }
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Could not get characteristics for selected camera.", e);
+            mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
+        }
+
+        if (mTextureView.isAvailable()) {
+            openCamera(mTextureView.getWidth(), mTextureView.getHeight());
+        } else {
+            mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
+        }
+    }
+
+
     private void switchCamera() {
         if (mCurrentLensFacing == CameraCharacteristics.LENS_FACING_BACK) {
             mCurrentLensFacing = CameraCharacteristics.LENS_FACING_FRONT;
         } else {
             mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
         }
+        mCameraId = null;
         closeCamera();
         openCamera(mTextureView.getWidth(), mTextureView.getHeight());
     }
@@ -536,7 +670,6 @@ public class CameraActivity extends AppCompatActivity {
     private final TextureView.SurfaceTextureListener mSurfaceTextureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-            updateCameraStatusText();
             openCamera(width, height);
         }
         @Override
@@ -703,7 +836,6 @@ public class CameraActivity extends AppCompatActivity {
                 finish();
             } else if (resultCode == CropImage.CROP_IMAGE_ACTIVITY_RESULT_ERROR_CODE) {
                 Toast.makeText(this, "Image crop failed.", Toast.LENGTH_SHORT).show();
-                finish();
             } else {
                 finish();
             }
