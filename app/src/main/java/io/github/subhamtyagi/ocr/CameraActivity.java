@@ -96,13 +96,7 @@ public class CameraActivity extends AppCompatActivity {
     private ImageReader mImageReader;
 
     private int mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
-    //</editor-fold>
 
-    //<editor-fold desc="โค้ดสำหรับตรวจสอบกล้อง (ปรับปรุงใหม่)">
-
-    /**
-     * Data class สำหรับเก็บข้อมูลกล้อง
-     */
     public static class CameraInfo {
         public final String title;
         public final String cameraId;
@@ -122,9 +116,6 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * [UI Improvement] Adapter สำหรับแสดงรายการกล้องใน Dialog (Dark Theme)
-     */
     private static class CameraListAdapter extends ArrayAdapter<CameraInfo> {
         private final String mActiveCameraId;
         private final Context mContext;
@@ -145,7 +136,7 @@ public class CameraActivity extends AppCompatActivity {
 
         @Override
         public int getViewTypeCount() {
-            return 2; // We have two types of views: Item and Divider
+            return 2;
         }
 
         @Override
@@ -442,6 +433,8 @@ public class CameraActivity extends AppCompatActivity {
 
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
+            mTextureView.setAspectRatio(1, 1);
+
             if (mCameraId == null || mCameraId.isEmpty()) {
                 for (String cameraId : manager.getCameraIdList()) {
                     CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
@@ -462,10 +455,8 @@ public class CameraActivity extends AppCompatActivity {
             StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
             setupHardwareResolutions(map);
             mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class), width, height);
-            mTextureView.setAspectRatio(1, 1);
-            configureTransform(width, height);
-            manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
 
+            manager.openCamera(mCameraId, mStateCallback, mBackgroundHandler);
             runOnUiThread(this::updateCameraStatusText);
 
 
@@ -716,6 +707,13 @@ public class CameraActivity extends AppCompatActivity {
                     try {
                         mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
                         mCaptureSession.setRepeatingRequest(mPreviewRequestBuilder.build(), null, mBackgroundHandler);
+
+                        runOnUiThread(() -> {
+                            if (mTextureView != null && mTextureView.isAvailable()) {
+                                configureTransform(mTextureView.getWidth(), mTextureView.getHeight());
+                            }
+                        });
+
                     } catch (CameraAccessException e) {
                         Log.e(TAG, "Failed to start preview session", e);
                     }
