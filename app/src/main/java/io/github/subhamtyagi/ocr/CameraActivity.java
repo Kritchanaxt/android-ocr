@@ -345,7 +345,7 @@ public class CameraActivity extends AppCompatActivity {
                 .setTitle("Image details")
                 .setMessage(imageInfo)
                 .setPositiveButton("Crop Image", (dialog, which) -> {
-                    android.graphics.Rect idCardCropRect = new android.graphics.Rect(100, 250, 980, 700);
+                    android.graphics.Rect idCardCropRect = new android.graphics.Rect(100, 300, 980, 680);
 
                     CropImage.activity(imageUri)
                             .setGuidelines(CropImageView.Guidelines.ON)
