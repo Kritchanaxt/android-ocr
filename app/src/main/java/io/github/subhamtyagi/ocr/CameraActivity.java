@@ -1,15 +1,12 @@
 package io.github.subhamtyagi.ocr;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
@@ -22,6 +19,7 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -30,10 +28,11 @@ import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.TextureView;
-import android.view.WindowManager;
 import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -43,7 +42,6 @@ import androidx.core.content.FileProvider;
 import com.theartofdev.edmodo.cropper.CropImage;
 import com.theartofdev.edmodo.cropper.CropImageView;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -52,7 +50,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 public class CameraActivity extends AppCompatActivity {
@@ -60,16 +61,17 @@ public class CameraActivity extends AppCompatActivity {
     private static final String TAG = "CameraActivity";
     private static final int CAMERA_PERMISSION_REQUEST = 101;
 
+    //<editor-fold desc="ตัวแปรของ Activity">
     private List<Size> mMasterResolutionList;
     private List<Size> mHardwareSupportedResolutions;
     private Size mTargetResolution;
-    private int mCurrentResolutionIndex = 0;
 
     private AutoFitTextureView mTextureView;
     private ImageButton mCaptureButton;
     private ImageButton mSwitchCameraButton;
     private ImageButton mCheckCamerasButton;
     private ImageButton mChangeResolutionButton;
+    private TextView mCameraStatusTextView;
 
     private String mCameraId;
     private CameraDevice mCameraDevice;
@@ -82,6 +84,180 @@ public class CameraActivity extends AppCompatActivity {
 
     private int mCurrentLensFacing = CameraCharacteristics.LENS_FACING_BACK;
 
+    /**
+     * Data class สำหรับเก็บข้อมูลกล้องที่ถูกตรวจจับ
+     */
+    public static class CameraInfo {
+        public final String title;
+        public final String cameraId;
+        public final String cameraType;
+        @DrawableRes
+        public final int iconResId;
+        public final boolean isAvailable;
+        public final List<String> physicalCameraIds;
+
+        public CameraInfo(String title, String cameraId, String cameraType, @DrawableRes int iconResId, boolean isAvailable, List<String> physicalCameraIds) {
+            this.title = title;
+            this.cameraId = cameraId;
+            this.cameraType = cameraType;
+            this.iconResId = iconResId;
+            this.isAvailable = isAvailable;
+            this.physicalCameraIds = physicalCameraIds;
+        }
+    }
+
+    /**
+     * แปลงค่า Lens Facing เป็น String
+     */
+    private static String lensOrientationString(Integer value) {
+        if (value == null) return "Unknown";
+        switch (value) {
+            case CameraCharacteristics.LENS_FACING_BACK: return "Back";
+            case CameraCharacteristics.LENS_FACING_FRONT: return "Front";
+            case CameraCharacteristics.LENS_FACING_EXTERNAL: return "External";
+            default: return "Unknown (" + value + ")";
+        }
+    }
+
+    /**
+     * ตรวจสอบและจำแนกประเภทกล้องทั้งหมดในอุปกรณ์
+     */
+    @SuppressLint("InlinedApi")
+    public static List<CameraInfo> enumerateCamerasDetailed(CameraManager cameraManager) {
+        Log.d(TAG, "Starting detailed camera enumeration...");
+        Map<String, CameraInfo> detectedCamerasMap = new HashMap<>();
+
+        String[] allCameraIds;
+        try {
+            allCameraIds = cameraManager.getCameraIdList();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get camera ID list", e);
+            allCameraIds = new String[0];
+        }
+
+        Log.i(TAG, "Total camera IDs reported by CameraManager: " + allCameraIds.length + ". IDs: " + String.join(", ", allCameraIds));
+
+        List<String> predefinedCameraTypes = Arrays.asList(
+                "Front Camera", "Front Ultra Wide Camera", "Back Camera (Main)",
+                "Back Triple Camera", "Back Dual Camera", "Back Ultra Wide Camera",
+                "Back Telephoto Camera", "External Camera"
+        );
+
+        float ultraWideFocalLengthThreshold = 2.2f;
+        float telephotoFocalLengthThreshold = 7.5f;
+
+        for (String id : allCameraIds) {
+            try {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(id);
+                Integer orientation = characteristics.get(CameraCharacteristics.LENS_FACING);
+                int[] capabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+                if (capabilities == null) capabilities = new int[0];
+                float[] focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+
+                boolean isLogicalMultiCamera = false;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    for (int capability : capabilities) {
+                        if (capability == CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA) {
+                            isLogicalMultiCamera = true;
+                            break;
+                        }
+                    }
+                }
+
+                List<String> physicalCameraIds = new ArrayList<>();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isLogicalMultiCamera) {
+                    physicalCameraIds.addAll(characteristics.getPhysicalCameraIds());
+                }
+
+                Log.i(TAG, "--- Processing Camera ID: " + id + " ---");
+                Log.i(TAG, "  Orientation: " + lensOrientationString(orientation));
+                Log.i(TAG, "  Is Logical Multi-Camera: " + isLogicalMultiCamera);
+                if (isLogicalMultiCamera) {
+                    Log.i(TAG, "  Physical Camera IDs: " + String.join(", ", physicalCameraIds));
+                }
+
+                String determinedType = null;
+                if (orientation != null) {
+                    switch (orientation) {
+                        case CameraCharacteristics.LENS_FACING_FRONT:
+                            boolean isUltraWideFront = false;
+                            if (focalLengths != null && focalLengths.length == 1 && focalLengths[0] < ultraWideFocalLengthThreshold) {
+                                isUltraWideFront = true;
+                            }
+                            determinedType = isUltraWideFront ? "Front Ultra Wide Camera" : "Front Camera";
+                            break;
+                        case CameraCharacteristics.LENS_FACING_BACK:
+                            if (isLogicalMultiCamera && !physicalCameraIds.isEmpty()) {
+                                switch (physicalCameraIds.size()) {
+                                    case 3: determinedType = "Back Triple Camera"; break;
+                                    case 2: determinedType = "Back Dual Camera"; break;
+                                    default: determinedType = "Back Multi-Camera (" + physicalCameraIds.size() + " Lenses)"; break;
+                                }
+                            } else {
+                                boolean isTelephoto = false;
+                                boolean isUltraWide = false;
+                                if (focalLengths != null) {
+                                    for(float f : focalLengths) {
+                                        if (f > telephotoFocalLengthThreshold) isTelephoto = true;
+                                        if (f < ultraWideFocalLengthThreshold) isUltraWide = true;
+                                    }
+                                }
+                                if (isTelephoto) determinedType = "Back Telephoto Camera";
+                                else if (isUltraWide) determinedType = "Back Ultra Wide Camera";
+                                else determinedType = "Back Camera (Main)";
+                            }
+                            break;
+                        case CameraCharacteristics.LENS_FACING_EXTERNAL:
+                            determinedType = "External Camera";
+                            break;
+                    }
+                }
+
+                if (determinedType != null) {
+                    Log.i(TAG, "  Camera ID " + id + ": Determined Type: " + determinedType);
+                    int iconRes = android.R.drawable.ic_menu_camera;
+                    CameraInfo camInfo = new CameraInfo(
+                            determinedType + " (ID: " + id + ")", id, determinedType,
+                            iconRes, true, physicalCameraIds);
+                    detectedCamerasMap.put(determinedType, camInfo);
+                }
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing camera ID " + id, e);
+            }
+        }
+
+        List<CameraInfo> finalDisplayList = new ArrayList<>();
+        predefinedCameraTypes.forEach(typeName -> {
+            CameraInfo detectedItem = detectedCamerasMap.get(typeName);
+            if (detectedItem != null) {
+                if (finalDisplayList.stream().noneMatch(c -> Objects.equals(c.cameraId, detectedItem.cameraId) && !c.cameraId.isEmpty())) {
+                    finalDisplayList.add(detectedItem);
+                }
+            } else {
+                if (finalDisplayList.stream().noneMatch(c -> c.cameraType.equals(typeName))) {
+                    finalDisplayList.add(new CameraInfo(typeName + " (Not Available)", "", typeName, android.R.drawable.ic_menu_close_clear_cancel, false, Collections.emptyList()));
+                }
+            }
+        });
+
+        finalDisplayList.sort(Comparator.comparingInt(c -> predefinedCameraTypes.indexOf(c.cameraType)));
+
+        long availableCount = detectedCamerasMap.values().stream().filter(c -> c.isAvailable).count();
+        finalDisplayList.add(0, new CameraInfo("Detected: " + allCameraIds.length + " / Available Types: " + availableCount, "", "Header", 0, true, Collections.emptyList()));
+
+        return finalDisplayList;
+    }
+
+    private void updateCameraStatusText() {
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+        List<CameraInfo> cameraList = enumerateCamerasDetailed(manager);
+        String statusText = "";
+        if (!cameraList.isEmpty() && "Header".equals(cameraList.get(0).cameraType)) {
+            statusText = cameraList.get(0).title;
+        }
+        mCameraStatusTextView.setText(statusText);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,10 +271,26 @@ public class CameraActivity extends AppCompatActivity {
         mSwitchCameraButton = findViewById(R.id.btn_switch_camera);
         mCheckCamerasButton = findViewById(R.id.btn_check_cameras);
         mChangeResolutionButton = findViewById(R.id.btn_change_resolution);
+        mCameraStatusTextView = findViewById(R.id.camera_status_text);
 
         mCaptureButton.setOnClickListener(v -> captureImage());
         mSwitchCameraButton.setOnClickListener(v -> switchCamera());
-        mCheckCamerasButton.setOnClickListener(v -> enumerateCameras());
+
+        mCheckCamerasButton.setOnClickListener(v -> {
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            List<CameraInfo> cameraList = enumerateCamerasDetailed(manager);
+
+            CharSequence[] cameraItems = new CharSequence[cameraList.size()];
+            for (int i = 0; i < cameraList.size(); i++) {
+                cameraItems[i] = cameraList.get(i).title;
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("Available Cameras");
+            builder.setItems(cameraItems, null);
+            builder.setPositiveButton("OK", (dialog, which) -> dialog.dismiss());
+            builder.create().show();
+        });
 
         mChangeResolutionButton.setOnClickListener(v -> showResolutionSelectionDialog());
         mChangeResolutionButton.setEnabled(false);
@@ -106,6 +298,7 @@ public class CameraActivity extends AppCompatActivity {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
         } else {
+            updateCameraStatusText();
             startBackgroundThread();
             if (mTextureView.isAvailable()) {
                 openCamera(mTextureView.getWidth(), mTextureView.getHeight());
@@ -118,14 +311,9 @@ public class CameraActivity extends AppCompatActivity {
     private void initializeResolutions() {
         mHardwareSupportedResolutions = new ArrayList<>();
         mMasterResolutionList = new ArrayList<>(Arrays.asList(
-                new Size(3024, 3024),
-                new Size(2560, 2560),
-                new Size(2160, 2160),
-                new Size(2048, 2048),
-                new Size(1920, 1920),
-                new Size(1440, 1440),
-                new Size(1080, 1080),
-                new Size(720, 720)
+                new Size(3024, 3024), new Size(2560, 2560), new Size(2160, 2160),
+                new Size(2048, 2048), new Size(1920, 1920), new Size(1440, 1440),
+                new Size(1080, 1080), new Size(720, 720)
         ));
         Collections.sort(mMasterResolutionList, (s1, s2) -> Integer.compare(s2.getWidth() * s2.getHeight(), s1.getWidth() * s1.getHeight()));
         mTargetResolution = new Size(720, 720);
@@ -141,50 +329,23 @@ public class CameraActivity extends AppCompatActivity {
         for (int i = 0; i < mMasterResolutionList.size(); i++) {
             Size s = mMasterResolutionList.get(i);
             String resolutionString = s.getWidth() + "x" + s.getHeight();
-            if (i == 0) {
-                resolutionItems[i] = "Maximum (" + resolutionString + ")";
-            } else {
-                resolutionItems[i] = resolutionString;
-            }
+            if (i == 0) resolutionItems[i] = "Maximum (" + resolutionString + ")";
+            else resolutionItems[i] = resolutionString;
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle("Select resolution");
         builder.setItems(resolutionItems, (dialog, which) -> {
             mTargetResolution = mMasterResolutionList.get(which);
-            Toast.makeText(this, "เลือก: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Selected: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show();
         });
-
         builder.create().show();
-    }
-
-    private void enumerateCameras() {
-        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-        try {
-            String[] cameraIds = manager.getCameraIdList();
-            Log.d(TAG, "===== Camera Enumeration Report =====");
-            Log.d(TAG, "Total cameras found: " + cameraIds.length);
-            for (String cameraId : cameraIds) {
-                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-                Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-                String facingStr = (facing == null) ? "Unknown" : (facing == CameraCharacteristics.LENS_FACING_FRONT ? "Front" : "Back");
-                StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                boolean isUsable = map != null && map.getOutputSizes(ImageFormat.JPEG).length > 0;
-                String status = isUsable ? "Usable" : "Not Usable";
-                Log.d(TAG, "Camera ID: " + cameraId + ", Facing: " + facingStr + ", Status: " + status);
-            }
-            Log.d(TAG, "=====================================");
-            Toast.makeText(this, "Camera list logged to Logcat.", Toast.LENGTH_SHORT).show();
-        } catch (CameraAccessException e) {
-            Log.e(TAG, "Cannot access camera list.", e);
-        }
     }
 
 
     private void openCamera(int width, int height) {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return;
+
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
             for (String cameraId : manager.getCameraIdList()) {
@@ -220,17 +381,16 @@ public class CameraActivity extends AppCompatActivity {
         if (!mHardwareSupportedResolutions.isEmpty()) {
             Collections.sort(mHardwareSupportedResolutions, (s1, s2) -> Integer.compare(s2.getWidth() * s2.getHeight(), s1.getWidth() * s1.getHeight()));
             mChangeResolutionButton.setEnabled(true);
-            runOnUiThread(() -> Toast.makeText(this, "ตั้งค่าเริ่มต้น: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show());
+            runOnUiThread(() -> Toast.makeText(this, "Default Res: " + mTargetResolution.toString(), Toast.LENGTH_SHORT).show());
         } else {
             mChangeResolutionButton.setEnabled(false);
-            runOnUiThread(() -> Toast.makeText(this, "ไม่พบความละเอียด 1:1 ที่รองรับ", Toast.LENGTH_LONG).show());
+            runOnUiThread(() -> Toast.makeText(this, "No 1:1 resolutions supported.", Toast.LENGTH_LONG).show());
         }
     }
 
     private Size findBestCaptureSize(Size target) {
-        if (mHardwareSupportedResolutions.isEmpty()) {
-            return target;
-        }
+        if (mHardwareSupportedResolutions.isEmpty()) return target;
+
         Size bestSize = mHardwareSupportedResolutions.get(0);
         for (int i = mHardwareSupportedResolutions.size() - 1; i >= 0; i--) {
             Size supported = mHardwareSupportedResolutions.get(i);
@@ -270,7 +430,6 @@ public class CameraActivity extends AppCompatActivity {
         return jpegOrientation;
     }
 
-
     private void captureImage() {
         if (mCameraDevice == null) return;
         try {
@@ -288,7 +447,6 @@ public class CameraActivity extends AppCompatActivity {
             captureBuilder.set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO);
             captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation());
 
-
             final File file = new File(getExternalFilesDir(null), UUID.randomUUID().toString() + ".jpg");
 
             ImageReader.OnImageAvailableListener readerListener = reader -> {
@@ -300,9 +458,7 @@ public class CameraActivity extends AppCompatActivity {
                     try (FileOutputStream output = new FileOutputStream(file)) {
                         output.write(bytes);
                     }
-
                     runOnUiThread(() -> onImageCaptured(file));
-
                 } catch (IOException e) {
                     Log.e(TAG, "Failed to save image", e);
                 }
@@ -322,12 +478,10 @@ public class CameraActivity extends AppCompatActivity {
                 @Override
                 public void onConfigureFailed(@NonNull CameraCaptureSession session) {}
             }, mBackgroundHandler);
-
         } catch (CameraAccessException e) {
             Log.e(TAG, "Failed to setup capture", e);
         }
     }
-
 
     private void onImageCaptured(File imageFile) {
         Uri imageUri = FileProvider.getUriForFile(this, getApplicationContext().getPackageName() + ".image-cropper.provider", imageFile);
@@ -336,30 +490,23 @@ public class CameraActivity extends AppCompatActivity {
         String fileSizeStr = Formatter.formatShortFileSize(this, fileSizeInBytes);
         String fileFormat = "JPEG";
         String resolutionStr = mTargetResolution.getWidth() + "x" + mTargetResolution.getHeight();
-
-        String imageInfo = "File Size: " + fileSizeStr + "\n" +
-                "Format: " + fileFormat + "\n" +
-                "Resolution: " + resolutionStr;
+        String imageInfo = "File Size: " + fileSizeStr + "\n" + "Format: " + fileFormat + "\n" + "Resolution: " + resolutionStr;
 
         new AlertDialog.Builder(this)
                 .setTitle("Image details")
                 .setMessage(imageInfo)
                 .setPositiveButton("Crop Image", (dialog, which) -> {
-                    android.graphics.Rect idCardCropRect = new android.graphics.Rect(100, 300, 980, 680);
-
+                    android.graphics.Rect idCardCropRect = new android.graphics.Rect(100, 350, 980, 750);
                     CropImage.activity(imageUri)
                             .setGuidelines(CropImageView.Guidelines.ON)
                             .setAspectRatio(85, 54)
                             .setInitialCropWindowRectangle(idCardCropRect)
                             .start(this);
                 })
-                .setNegativeButton("Cancel", (dialog, which) -> {
-                    imageFile.delete();
-                })
+                .setNegativeButton("Cancel", (dialog, which) -> imageFile.delete())
                 .setCancelable(false)
                 .show();
     }
-
 
     private void switchCamera() {
         if (mCurrentLensFacing == CameraCharacteristics.LENS_FACING_BACK) {
@@ -389,6 +536,7 @@ public class CameraActivity extends AppCompatActivity {
     private final TextureView.SurfaceTextureListener mSurfaceTextureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+            updateCameraStatusText();
             openCamera(width, height);
         }
         @Override
@@ -396,9 +544,7 @@ public class CameraActivity extends AppCompatActivity {
             configureTransform(width, height);
         }
         @Override
-        public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
-            return true;
-        }
+        public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) { return true; }
         @Override
         public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {}
     };
@@ -475,11 +621,8 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-
     private void configureTransform(int viewWidth, int viewHeight) {
-        if (null == mTextureView || null == mPreviewSize) {
-            return;
-        }
+        if (null == mTextureView || null == mPreviewSize) return;
         int rotation = getWindowManager().getDefaultDisplay().getRotation();
         Matrix matrix = new Matrix();
         RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
@@ -489,9 +632,7 @@ public class CameraActivity extends AppCompatActivity {
         if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
             bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
             matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
-            float scale = Math.max(
-                    (float) viewHeight / mPreviewSize.getHeight(),
-                    (float) viewWidth / mPreviewSize.getWidth());
+            float scale = Math.max((float) viewHeight / mPreviewSize.getHeight(), (float) viewWidth / mPreviewSize.getWidth());
             matrix.postScale(scale, scale, centerX, centerY);
             matrix.postRotate(90 * (rotation - 2), centerX, centerY);
         } else if (Surface.ROTATION_180 == rotation) {
