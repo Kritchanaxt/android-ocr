@@ -333,6 +333,10 @@ public class CameraActivity extends AppCompatActivity {
         initializeResolutions();
 
         mTextureView = findViewById(R.id.texture_view);
+        // Set the aspect ratio of the view to 1:1 as soon as the activity is created.
+        // This ensures the view has the correct dimensions before the camera listener starts.
+        mTextureView.setAspectRatio(1, 1);
+
         mCaptureButton = findViewById(R.id.btn_capture);
         mSwitchCameraButton = findViewById(R.id.btn_switch_camera);
         mCheckCamerasButton = findViewById(R.id.btn_check_cameras);
@@ -433,7 +437,7 @@ public class CameraActivity extends AppCompatActivity {
 
         CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         try {
-            mTextureView.setAspectRatio(1, 1);
+            // The aspect ratio is now set in onCreate, so we don't need it here.
 
             if (mCameraId == null || mCameraId.isEmpty()) {
                 for (String cameraId : manager.getCameraIdList()) {
